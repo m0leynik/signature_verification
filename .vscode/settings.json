@@ -1,0 +1,8 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./utils/Cargo.toml",
+        "./verifier/Cargo.toml",
+        "./retranslator/Cargo.toml",
+        "./actor/Cargo.toml",
+    ]
+}

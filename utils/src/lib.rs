@@ -1,7 +1,104 @@
+use std::io::{Read,Write};
+
+pub fn write_contents(out: &mut impl Write, contents: &[u8]) -> Result<(), String> {
+    match out.write_all(contents) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("failed to write content: {e:?}"))
+    }
+}
+
+pub fn read_contents(input: &mut impl Read) -> Result<Vec<u8>, String> {
+    let mut contents = Vec::new();
+    match input.read_to_end(&mut contents) {
+        Ok(_) => Ok(contents),
+        Err(err) => Err(err.to_string())
+    }
+}
+
+pub mod crypto {
+
+use std::fs::File;
+use std::sync::Arc;
+
 use openssl::hash::MessageDigest;
 use openssl::pkey::{PKey, Private, Public};
 use openssl::rsa::Rsa;
 use openssl::sign::{Signer, Verifier};
+
+use serde::{Serialize, Deserialize};
+
+
+pub trait PubKeyDistributor {
+    fn distribute_key(&self, pub_key: &[u8]) -> Result<(), String>;
+}
+
+pub trait PubKeySelector {
+    fn select_key(&self, signature: &[u8]) -> Result<Vec<u8>, String>;
+}
+
+// In the wild public key should be selected by public key id, extracted from signature. 
+// But for test assignment the schemme can be simplified :)
+pub struct TrivialLocalKeyDistributor {}
+
+impl TrivialLocalKeyDistributor {
+    const ACTOR_KEY_FILE_PATH: &'static str  = "./actor.pem";
+}
+
+impl PubKeyDistributor for TrivialLocalKeyDistributor {
+    fn distribute_key(&self, pub_key_pem: &[u8]) -> Result<(), String> {
+        match File::create(Self::ACTOR_KEY_FILE_PATH) {
+            Ok(mut key_file) => super::write_contents(&mut key_file, pub_key_pem),
+            Err(err) => Err(err.to_string())
+        }
+    }
+}
+
+impl PubKeySelector for TrivialLocalKeyDistributor {
+    fn select_key(&self, _signature: &[u8]) -> Result<Vec<u8>, String> {
+        match File::open(Self::ACTOR_KEY_FILE_PATH) {
+            Ok(mut key_file) => super::read_contents(&mut key_file),
+            Err(err) => Err(err.to_string())
+        }
+    }
+}
+
+pub fn get_key_distributor() -> Arc<dyn PubKeyDistributor> {
+    return Arc::new(TrivialLocalKeyDistributor{});
+}
+
+pub fn get_key_selector() -> Arc<dyn PubKeySelector> {
+    return Arc::new(TrivialLocalKeyDistributor{});
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct SignedMessage {
+    pub msg: Vec<u8>,
+    pub sig: Vec<u8>
+}
+
+impl SignedMessage {
+    pub fn serialize(&self) -> Result<Vec<u8>, String>  {
+        return serialize_message(self);
+    }
+
+    pub fn deserialize(msg_bin: &[u8]) -> Result<SignedMessage, String> {
+        return deserialize_message(msg_bin);
+    }
+}
+
+fn serialize_message(msg: &SignedMessage) -> Result<Vec<u8>, String> {
+    match bincode::serialize(msg) {
+        Ok(msg_bin) => Ok(msg_bin),
+        Err(err) => Err(err.to_string())
+    }
+} 
+
+fn deserialize_message(msg_bin: &[u8]) -> Result<SignedMessage, String> {
+    match bincode::deserialize::<SignedMessage>(msg_bin) {
+        Ok(opt_msg) => Ok(opt_msg),
+        Err(err) => Err(err.to_string())
+    }
+}
 
 fn rsa_to_pkey(rsa: Rsa<Private>) -> Result<PKey<Private>, String> {
     match PKey::from_rsa(rsa) {
@@ -197,4 +294,38 @@ mod tests {
         let verify_result = verify_signature(&msg[..], &signature[..], &pub_key_pem[..]);
         assert!(verify_result.is_err());
     }
+
+    #[test]
+    fn test_message_serialization_succeeded() {
+        let initial_msg = SignedMessage {
+            msg: vec![6u8; 1000],
+            sig: vec![7u8; 1000]
+        };
+        
+        let ser_msg = initial_msg.serialize();
+        assert!(ser_msg.is_ok());
+        let deser_msg = SignedMessage::deserialize(&ser_msg.unwrap()[..]);
+        assert!(deser_msg.is_ok());
+
+        assert!(initial_msg == deser_msg.unwrap());
+    }
+
+    #[test]
+    fn test_deserialization_fails_on_corrupted_input() {
+        let initial_msg = SignedMessage {
+            msg: vec![6u8; 1000],
+            sig: vec![7u8; 1000]
+        };
+        
+        let ser_msg = initial_msg.serialize();
+        assert!(ser_msg.is_ok());
+
+        // corrupt message
+        let mut msg_bin = ser_msg.unwrap();
+        msg_bin[0] = !msg_bin[0]; 
+        
+        let deser_msg = SignedMessage::deserialize(&msg_bin[..]);
+        assert!(deser_msg.is_err());
+    }
+}
 }

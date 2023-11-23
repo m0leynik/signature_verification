@@ -25,15 +25,8 @@ fn handle_response(stream: &mut impl Read) {
     }
 }
 
-fn write_message(msg: Vec<u8>, stream: &mut impl Write) -> Result<(), String> {
-    match stream.write(msg.as_slice()) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("failed to write message: {e:?}"))
-    }
-}
-
-fn exchange_msg(msg: Vec<u8>, stream: &mut TcpStream) {
-    match write_message(msg, stream) {
+fn exchange_msg<Stream: Read + Write>(msg: &[u8], stream: &mut Stream) {
+    match utils::write_contents(stream, msg) {
         Ok(_) => {
             println!("Message sent");
             handle_response(stream);
@@ -44,7 +37,7 @@ fn exchange_msg(msg: Vec<u8>, stream: &mut TcpStream) {
     }
 }
 
-fn pass_message(msg: Vec<u8>, receiver_addr: &String) -> Result<(), String> {
+fn pass_message(msg: &[u8], receiver_addr: &String) -> Result<(), String> {
 
     match TcpStream::connect(receiver_addr) {
         Ok(mut stream) => {
@@ -60,7 +53,7 @@ fn pass_message(msg: Vec<u8>, receiver_addr: &String) -> Result<(), String> {
 fn retranslate_stream(stream: &mut impl Read, receiver_addr: &String) -> Result<(), String> {
     let mut msg = Vec::new();
     match stream.read_to_end(&mut msg) {
-        Ok(_) => pass_message(msg, receiver_addr),
+        Ok(_) => pass_message(&msg[..], receiver_addr),
         Err(e) => Err(format!("failed to read data: {e:?}")),
     }
 }
