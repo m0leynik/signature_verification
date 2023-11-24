@@ -17,10 +17,10 @@ fn handle_response(stream: &mut impl Read) {
     
     match stream.read_to_string(&mut response) {
         Ok(_) => {
-            println!("Server response is: {}", response);
+            println!("server response is: {}", response);
         },
         Err(e) => {
-            println!("Failed to read server response: {}", e);
+            println!("failed to read server response: {}", e);
         }
     }
 }
@@ -37,7 +37,7 @@ fn exchange_msg<Stream: Read + Write>(msg: &[u8], stream: &mut Stream) {
     }
 }
 
-fn pass_message(msg: &[u8], receiver_addr: &String) -> Result<(), String> {
+fn pass_message(msg: &[u8], receiver_addr: &str) -> Result<(), String> {
 
     match TcpStream::connect(receiver_addr) {
         Ok(mut stream) => {
@@ -50,7 +50,7 @@ fn pass_message(msg: &[u8], receiver_addr: &String) -> Result<(), String> {
     }
 }
 
-fn retranslate_stream(stream: &mut impl Read, receiver_addr: &String) -> Result<(), String> {
+fn retranslate_stream(stream: &mut impl Read, receiver_addr: &str) -> Result<(), String> {
     let mut msg = Vec::new();
     match stream.read_to_end(&mut msg) {
         Ok(_) => pass_message(&msg[..], receiver_addr),
@@ -58,7 +58,7 @@ fn retranslate_stream(stream: &mut impl Read, receiver_addr: &String) -> Result<
     }
 }
 
-fn listen(listener: &TcpListener, connection_address: &String) -> Result<(), String> {
+fn listen(listener: &TcpListener, connection_address: &str) -> Result<(), String> {
     for stream in listener.incoming() {
         match stream {
             Ok(mut s) => return retranslate_stream(&mut s, connection_address),
@@ -69,7 +69,7 @@ fn listen(listener: &TcpListener, connection_address: &String) -> Result<(), Str
     Ok(())
 }
 
-fn run_singlethreaded_server(srv_address: &String, connection_address: &String) -> Result<(), String> {
+fn run_server(srv_address: &str, connection_address: &str) -> Result<(), String> {
     let listener = TcpListener::bind(srv_address);
     match listener {
         Ok(l) => return listen(&l, connection_address),
@@ -81,7 +81,7 @@ fn main() {
     let srv_address = get_server_address();
     let connection_address = get_connection_address();
     
-    match run_singlethreaded_server(&srv_address, &connection_address) {
+    match run_server(&srv_address, &connection_address) {
         Ok(_) => println!("server stopped"),
         Err(e) => println!("{e:?}"),
     }

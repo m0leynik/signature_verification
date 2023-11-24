@@ -58,7 +58,7 @@ fn listen(listener: &TcpListener) -> Result<(), String> {
     return Ok(());
 }
 
-fn run_singlethreaded_server(srv_address: &String) -> Result<(), String> {
+fn run_server(srv_address: &str) -> Result<(), String> {
     match TcpListener::bind(srv_address) {
         Ok(listener) => listen(&listener),
         Err(e) => Err(format!("failed to create server: {e:?}")),
@@ -72,7 +72,7 @@ fn get_server_address() -> String {
 
 fn main() {
     let srv_address = get_server_address();
-    match run_singlethreaded_server(&srv_address) {
+    match run_server(&srv_address) {
         Ok(_) => println!("verifier stopped"),
         Err(e) => println!("{e:?}"),
     }
@@ -155,9 +155,8 @@ mod tests {
         // arrange
         let key_pair = utils::crypto::generate_keypair_pem().unwrap();
         let test_msg = vec![6u8; 1000];
-        let test_sig = utils::crypto::sign_msg(&test_msg[..], &key_pair[..]).unwrap();
         let msg = Arc::new(SignedMessage {
-            sig: test_sig,
+            sig: utils::crypto::sign_msg(&test_msg[..], &key_pair[..]).unwrap(),
             msg: corrupt_data(test_msg),
         });
         let mut mock_stream = MockReadWriteTrait::new();
