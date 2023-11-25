@@ -19,7 +19,7 @@ fn verify_message(key_selector: &dyn PubKeySelector, msg_bin: &[u8]) -> Result<b
 }
 
 fn report_result(out: &mut impl Write, result: bool) -> Result<(), String> {
-    return utils::write_contents(out, result.to_string().as_bytes());
+    return utils::write_contents(result.to_string().as_bytes(), out);
 }
 
 fn handle_message<Stream: Read + Write>(key_selector: &dyn PubKeySelector, msg_bin: &[u8], stream: &mut Stream) -> Result<(), String> {
@@ -27,11 +27,10 @@ fn handle_message<Stream: Read + Write>(key_selector: &dyn PubKeySelector, msg_b
     return report_result(stream, result);
 }
 
-fn handle_connection<Stream: Read + Write>(key_selector: &dyn PubKeySelector, stream: &mut Stream) -> Result<(), String> {
-    let mut msg = Vec::new();
-    match stream.read_to_end(&mut msg) {
-        Ok(_) => {
-            println!("Connection handled!");
+fn handle_connection<Stream: Read + Write>(key_selector: &dyn PubKeySelector, stream: &mut Stream) -> Result<(), String> {   
+    match utils::proto::read_msg(stream) {
+        Ok(msg) => {
+            println!("connection handled");
             return handle_message(key_selector, &msg[..], stream);
         },
         Err(e) => {
@@ -44,6 +43,7 @@ fn listen(listener: &TcpListener) -> Result<(), String> {
     for incoming in listener.incoming() {
         match incoming {
             Ok(mut stream) => {
+                println!("new connection");
                 let key_selector = utils::crypto::get_key_selector();
                 let res = handle_connection(key_selector.as_ref(), &mut stream);
                 if res.is_err() {
@@ -72,6 +72,7 @@ fn get_server_address() -> String {
 
 fn main() {
     let srv_address = get_server_address();
+    println!("verifier started");
     match run_server(&srv_address) {
         Ok(_) => println!("verifier stopped"),
         Err(e) => println!("{e:?}"),
@@ -81,7 +82,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
     use super::*;
     use mockall::*;
@@ -96,7 +97,7 @@ mod tests {
 
         impl std::io::Read for ReadWriteTrait {
             fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize>;
-            fn read_to_end(&mut self, buf: &mut Vec<u8>) -> std::io::Result<usize>;
+            fn read_exact(&mut self, buf: &mut [u8]) -> std::io::Result<()>;
         }
     }
 
@@ -117,11 +118,20 @@ mod tests {
             msg: test_msg,
         });
         let mut mock_stream = MockReadWriteTrait::new();
-        mock_stream.expect_read_to_end().once().returning({
-            let initial_msg = msg.clone();
+        mock_stream.expect_flush().times(1).returning(||{ Ok(()) });
+        mock_stream.expect_read_exact().times(2).returning({
+            let msg_bin = msg.as_ref().serialize().unwrap();
             move |buf| {
-                *buf = initial_msg.as_ref().serialize().unwrap();
-                return Ok(buf.len());
+                static FIRST_CALL: AtomicBool = AtomicBool::new(true);
+                if FIRST_CALL.load(Ordering::SeqCst) {
+                    assert!(buf.len() == utils::proto::MSG_LEN_SIZE);
+                    buf.copy_from_slice(&(msg_bin.len() as u64).to_le_bytes()[..]);
+                    FIRST_CALL.store(false, Ordering::SeqCst)
+                } else {
+                    assert!(buf.len() == msg_bin.len());
+                    buf.copy_from_slice(&msg_bin[..]);
+                }
+                return Ok(());
             }
         });
         mock_stream.expect_write_all().once().returning(|res| {
@@ -160,11 +170,20 @@ mod tests {
             msg: corrupt_data(test_msg),
         });
         let mut mock_stream = MockReadWriteTrait::new();
-        mock_stream.expect_read_to_end().once().returning({
-            let initial_msg = msg.clone();
+        mock_stream.expect_flush().times(1).returning(||{ Ok(()) });
+        mock_stream.expect_read_exact().times(2).returning({
+            let msg_bin = msg.as_ref().serialize().unwrap();
             move |buf| {
-                *buf = initial_msg.as_ref().serialize().unwrap();
-                return Ok(buf.len());
+                static FIRST_CALL: AtomicBool = AtomicBool::new(true);
+                if FIRST_CALL.load(Ordering::SeqCst) {
+                    assert!(buf.len() == utils::proto::MSG_LEN_SIZE);
+                    buf.copy_from_slice(&(msg_bin.len() as u64).to_le_bytes()[..]);
+                    FIRST_CALL.store(false, Ordering::SeqCst)
+                } else {
+                    assert!(buf.len() == msg_bin.len());
+                    buf.copy_from_slice(&msg_bin[..]);
+                }
+                return Ok(());
             }
         });
         mock_stream.expect_write_all().once().returning(|res| {

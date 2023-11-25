@@ -26,13 +26,13 @@ fn handle_response(stream: &mut impl Read) {
 }
 
 fn exchange_msg<Stream: Read + Write>(msg: &[u8], stream: &mut Stream) {
-    match utils::write_contents(stream, msg) {
+    match utils::proto::write_msg(msg, stream) {
         Ok(_) => {
-            println!("Message sent");
+            println!("message sent");
             handle_response(stream);
         },
         Err(e) => {
-            println!("Failed to pass message: {}", e);
+            println!("failed to pass message: {}", e);
         }
     }
 }
@@ -51,9 +51,8 @@ fn pass_message(msg: &[u8], receiver_addr: &str) -> Result<(), String> {
 }
 
 fn retranslate_stream(stream: &mut impl Read, receiver_addr: &str) -> Result<(), String> {
-    let mut msg = Vec::new();
-    match stream.read_to_end(&mut msg) {
-        Ok(_) => pass_message(&msg[..], receiver_addr),
+    match utils::proto::read_msg(stream) {
+        Ok(msg) => pass_message(&msg[..], receiver_addr),
         Err(e) => Err(format!("failed to read data: {e:?}")),
     }
 }
@@ -61,8 +60,15 @@ fn retranslate_stream(stream: &mut impl Read, receiver_addr: &str) -> Result<(),
 fn listen(listener: &TcpListener, connection_address: &str) -> Result<(), String> {
     for stream in listener.incoming() {
         match stream {
-            Ok(mut s) => return retranslate_stream(&mut s, connection_address),
-            Err(e) => return Err(format!("failed to establish connection: {e:?}")),
+            Ok(mut s) => {
+                let res = retranslate_stream(&mut s, connection_address);
+                if res.is_err() {
+                    println!("failed to stream message {}", res.unwrap_err())
+                }
+            },
+            Err(e) => {
+                return Err(format!("failed to establish connection: {e:?}"));
+            }
         }
     }
 

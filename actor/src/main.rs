@@ -42,7 +42,7 @@ fn generate_signed_message(key_distributor: &dyn PubKeyDistributor) -> Result<Si
 }
 
 fn write_bin_message(msg: &[u8], out: &mut impl std::io::Write) -> Result<(), String> {
-    match utils::write_contents(out, msg) {
+    match utils::proto::write_msg(msg, out) {
         Ok(_) => Ok(()),
         Err(e) => Err(e)
     }
@@ -106,7 +106,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 
     use super::*;
     use mockall::*;
@@ -136,12 +136,19 @@ mod tests {
             sig: vec![7u8; 1000]
         });
         let mut mock_write = MockWriteTrait::new();
-        mock_write.expect_write_all().once().returning({
+        mock_write.expect_write_all().times(2).returning({
             let initial_msg = msg.clone();
             move |msg_bin| {
-                assert!(*initial_msg.as_ref() == SignedMessage::deserialize(msg_bin).unwrap());
+                static FIRST_CALL: AtomicBool = AtomicBool::new(true);
+                if FIRST_CALL.load(Ordering::SeqCst) {
+                    assert!(msg_bin.len() == utils::proto::MSG_LEN_SIZE);
+                    FIRST_CALL.store(false, Ordering::SeqCst)
+                } else {
+                    assert!(*initial_msg.as_ref() == SignedMessage::deserialize(msg_bin).unwrap());
+                }
                 return Ok(());
         }});
+        mock_write.expect_flush().times(2).returning(||{ Ok(()) });
         
         // act
         // assert
