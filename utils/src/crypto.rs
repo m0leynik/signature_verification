@@ -17,7 +17,7 @@ pub trait PubKeySelector {
     fn select_key(&self, signature: &[u8]) -> Result<Vec<u8>, String>;
 }
 
-// In the wild public key should be selected by public key id, extracted from signature. 
+// In the wild public key should be selected by public key id (fingerprint), extracted from signature. 
 // But for test assignment the schemme can be simplified :)
 pub struct TrivialLocalKeyDistributor {}
 
@@ -148,7 +148,10 @@ fn verify_with_pub_key(msg: &[u8], sig: &[u8], pub_key: PKey<Public>) -> Result<
 
 pub fn generate_keypair_pem() -> Result<Vec<u8>, String> {
     const KEY_LENGTH: u32 = 2048;
+    // failed to use ED25519 and ED448 in openssl 3.0.2. Maybe due to
+    // https://github.com/openssl/openssl/issues/18184
 
+    // TODO: use secp256k1 + ecrecover
     match Rsa::generate(KEY_LENGTH) {
         Ok(rsa) => {
             return serialize_to_pem(rsa);
